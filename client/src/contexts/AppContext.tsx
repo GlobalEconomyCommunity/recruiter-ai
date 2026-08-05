@@ -36,17 +36,39 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
+
+function createVacancyAnalyzedActivity(vacancy: Vacancy): AIActivity {
+  return {
+    id: `activity-vacancy-created-${vacancy.id}`,
+    type: 'analysis_formed',
+    title: 'Вакансия проанализирована',
+    description:
+      `Recruiter AI проанализировал вакансию «${vacancy.title}», ` +
+      `выделил ${vacancy.requiredSkills.length} обязательных ` +
+      `и ${vacancy.preferredSkills.length} желательных требований.`,
+    timestamp: vacancy.updatedAt,
+    vacancyId: vacancy.id,
+    vacancyTitle: vacancy.title,
+    status: 'completed',
+  };
+}
+
 /**
- * В прототипе данные сохраняются в localStorage. После обновления исходных
- * демо-данных в браузере может остаться старая или неполная версия массива.
- * Эта функция возвращает недостающие стандартные записи и сохраняет
- * пользовательские изменения для уже существующих записей.
+ * Объединяет данные из localStorage с демонстрационными данными.
+ *
+ * Важно:
+ * 1. Сохраняет порядок записей из localStorage.
+ * 2. Пользовательские вакансии не перемещаются в конец после перезагрузки.
+ * 3. Возвращает недостающие стандартные демо-записи.
+ * 4. Дополняет старые записи новыми полями из исходных данных.
  */
 function mergeStoredWithDefaults<T extends { id: string }>(
   storedValue: unknown,
   defaults: T[]
 ): T[] {
-  if (!Array.isArray(storedValue)) return defaults;
+  if (!Array.isArray(storedValue)) {
+    return defaults;
+  }
 
   const storedItems = storedValue.filter(
     (item): item is T =>
@@ -55,17 +77,37 @@ function mergeStoredWithDefaults<T extends { id: string }>(
       typeof (item as { id?: unknown }).id === 'string'
   );
 
-  const storedById = new Map(storedItems.map(item => [item.id, item]));
-  const defaultIds = new Set(defaults.map(item => item.id));
+  const defaultsById = new Map(
+    defaults.map(defaultItem => [defaultItem.id, defaultItem])
+  );
 
-  const mergedDefaults = defaults.map(defaultItem => {
-    const storedItem = storedById.get(defaultItem.id);
-    return storedItem ? { ...defaultItem, ...storedItem } : defaultItem;
+  const mergedStoredItems = storedItems.map(storedItem => {
+    const defaultItem = defaultsById.get(storedItem.id);
+
+    return defaultItem
+      ? { ...defaultItem, ...storedItem }
+      : storedItem;
   });
 
-  const customItems = storedItems.filter(item => !defaultIds.has(item.id));
+  const storedIds = new Set(storedItems.map(item => item.id));
 
-  return [...mergedDefaults, ...customItems];
+  const customStoredItems = mergedStoredItems.filter(
+    item => !defaultsById.has(item.id)
+  );
+
+  const storedDefaultItems = mergedStoredItems.filter(
+    item => defaultsById.has(item.id)
+  );
+
+  const missingDefaults = defaults.filter(
+    defaultItem => !storedIds.has(defaultItem.id)
+  );
+
+  return [
+    ...customStoredItems,
+    ...storedDefaultItems,
+    ...missingDefaults,
+  ];
 }
 
 function loadCollection<T extends { id: string }>(
@@ -80,10 +122,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [vacancies, setVacancies] = useState<Vacancy[]>(() =>
     loadCollection('vacancies', defaultVacancies)
   );
+
   const [candidates, setCandidates] = useState<Candidate[]>(() =>
     loadCollection('candidates', defaultCandidates)
   );
+
   const [interviews] = useState<Interview[]>(defaultInterviews);
+
   const [activities, setActivities] = useState<AIActivity[]>(() =>
     loadCollection('activities', defaultActivities)
   );
@@ -100,15 +145,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStoredData('activities', activities);
   }, [activities]);
 
+  /**
+   * Добавляет стартовое событие для пользовательских вакансий,
+   * которые были созданы до установки этого обновления.
+   */
+  useEffect(() => {
+    const defaultVacancyIds = new Set(
+      defaultVacancies.map(vacancy => vacancy.id)
+    );
+
+    const missingActivities = vacancies
+      .filter(vacancy => !defaultVacancyIds.has(vacancy.id))
+      .filter(
+        vacancy =>
+          !activities.some(
+            activity =>
+              activity.id === `activity-vacancy-created-${vacancy.id}`
+          )
+      )
+      .map(createVacancyAnalyzedActivity);
+
+    if (missingActivities.length === 0) {
+      return;
+    }
+
+    setActivities(previous => [
+      ...missingActivities,
+      ...previous,
+    ]);
+  }, [vacancies, activities]);
+
+  /**
+   * Создаёт вакансию и одновременно добавляет первое действие Recruiter AI.
+   * Новая вакансия размещается первой и остаётся первой после перезагрузки.
+   */
   const addVacancy = useCallback((vacancy: Vacancy) => {
-    setVacancies(previous => [vacancy, ...previous]);
+    const activityId = `activity-vacancy-created-${vacancy.id}`;
+
+    setVacancies(previous => [
+      vacancy,
+      ...previous.filter(item => item.id !== vacancy.id),
+    ]);
+
+    setActivities(previous => [
+      createVacancyAnalyzedActivity(vacancy),
+      ...previous.filter(activity => activity.id !== activityId),
+    ]);
   }, []);
 
   const updateVacancy = useCallback(
     (id: string, updates: Partial<Vacancy>) => {
       setVacancies(previous =>
         previous.map(vacancy =>
-          vacancy.id === id ? { ...vacancy, ...updates } : vacancy
+          vacancy.id === id
+            ? {
+                ...vacancy,
+                ...updates,
+              }
+            : vacancy
         )
       );
     },
@@ -133,7 +227,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const addActivity = useCallback((activity: AIActivity) => {
-    setActivities(previous => [activity, ...previous]);
+    setActivities(previous => [
+      activity,
+      ...previous.filter(item => item.id !== activity.id),
+    ]);
   }, []);
 
   return (
