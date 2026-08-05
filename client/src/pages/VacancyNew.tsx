@@ -1,33 +1,109 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { useApp } from '@/contexts/AppContext';
+import {
+  getStoredData,
+  removeStoredData,
+  setStoredData,
+} from '@/lib/storage';
 import { CheckCircle2, Circle, ArrowLeft, ArrowRight, Bot, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Vacancy, VacancyFormData } from '@/types';
 
 const steps = ['Основная информация', 'Описание', 'Требования', 'Настройка AI'];
+const DRAFT_STORAGE_KEY = 'vacancy_form_draft';
 
+const initialForm: VacancyFormData = {
+  title: '',
+  department: 'Продажи',
+  headcount: 1,
+  city: 'Москва',
+  workFormat: 'hybrid',
+  salaryMin: undefined,
+  salaryMax: undefined,
+  description: '',
+  responsibilities: '',
+  additionalComments: '',
+  requiredSkills: '',
+  preferredSkills: '',
+  experience: 'от 2 лет',
+  professionalSkills: '',
+  aiGoal: 'Найти подходящих кандидатов и провести первичный screening',
+  aiQuestions:
+    'Опыт работы, мотивация, зарплатные ожидания, формат работы',
+  hrConfirmations:
+    'Приглашение на следующий этап, отклонение кандидата',
+  screeningFormat: 'text',
+};
+
+interface VacancyDraft {
+  form: VacancyFormData;
+  currentStep: number;
+  savedAt: string;
+}
+
+function loadVacancyDraft(): VacancyDraft | null {
+  const storedDraft = getStoredData<unknown>(DRAFT_STORAGE_KEY, null);
+
+  if (
+    !storedDraft ||
+    typeof storedDraft !== 'object' ||
+    !('form' in storedDraft) ||
+    !('currentStep' in storedDraft)
+  ) {
+    return null;
+  }
+
+  const draft = storedDraft as Partial<VacancyDraft>;
+
+  if (!draft.form || typeof draft.currentStep !== 'number') {
+    return null;
+  }
+
+  return {
+    form: {
+      ...initialForm,
+      ...draft.form,
+    },
+    currentStep: Math.min(
+      Math.max(draft.currentStep, 0),
+      steps.length - 1
+    ),
+    savedAt: typeof draft.savedAt === 'string' ? draft.savedAt : '',
+  };
+}
 export default function VacancyNew() {
   const [, navigate] = useLocation();
   const { addVacancy } = useApp();
-  const [currentStep, setCurrentStep] = useState(0);
+  const [savedDraft] = useState<VacancyDraft | null>(loadVacancyDraft);
+
+  const [currentStep, setCurrentStep] = useState(
+    savedDraft?.currentStep ?? 0
+  );
+
   const [launching, setLaunching] = useState(false);
   const [launchStep, setLaunchStep] = useState(0);
-  const [form, setForm] = useState<VacancyFormData>({
-    title: '', department: 'Продажи', headcount: 1, city: 'Москва',
-    workFormat: 'hybrid', salaryMin: undefined, salaryMax: undefined,
-    description: '', responsibilities: '', additionalComments: '',
-    requiredSkills: '', preferredSkills: '', experience: 'от 2 лет', professionalSkills: '',
-    aiGoal: 'Найти подходящих кандидатов и провести первичный screening',
-    aiQuestions: 'Опыт работы, мотивация, зарплатные ожидания, формат работы',
-    hrConfirmations: 'Приглашение на следующий этап, отклонение кандидата',
-    screeningFormat: 'text',
-  });
+
+  const [form, setForm] = useState<VacancyFormData>(
+    savedDraft?.form ?? initialForm
+  );
 
   const updateField = (key: keyof VacancyFormData, value: any) => {
     setForm(prev => ({ ...prev, [key]: value }));
   };
+  const handleSaveDraft = () => {
+  const draft: VacancyDraft = {
+    form,
+    currentStep,
+    savedAt: new Date().toISOString(),
+  };
 
+  setStoredData(DRAFT_STORAGE_KEY, draft);
+
+  toast.success(
+    'Черновик сохранён. Данные восстановятся при следующем открытии формы'
+  );
+};
   const launchSteps = [
     'Анализ описания вакансии...',
     'Выделение обязательных требований...',
@@ -84,6 +160,7 @@ export default function VacancyNew() {
               hrHandoffCriteria: form.hrConfirmations.split(',').map(s => s.trim()).filter(Boolean),
             },
           };
+          removeStoredData(DRAFT_STORAGE_KEY);
           addVacancy(newVacancy);
           toast.success('Recruiter AI запущен!');
           setTimeout(() => navigate(`/vacancies/${newVacancy.id}`), 500);
@@ -281,8 +358,11 @@ export default function VacancyNew() {
             {currentStep > 0 ? 'Назад' : 'Отмена'}
           </button>
           <div className="flex items-center gap-3">
-            <button onClick={() => toast.success('Черновик сохранён')} className="px-4 py-2 rounded-xl border border-[#E2E8F0] text-sm text-[#64748B] hover:bg-[#F8FAFC] transition-colors">
-              Сохранить черновик
+            <button
+              onClick={handleSaveDraft}
+              className="px-4 py-2 rounded-xl border border-[#E2E8F0] text-sm text-[#64748B] hover:bg-[#F8FAFC] transition-colors"
+            >
+               Сохранить черновик
             </button>
             {currentStep < steps.length - 1 ? (
               <button onClick={() => setCurrentStep(currentStep + 1)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#10B981] text-white text-sm font-medium hover:bg-[#059669] transition-colors active:scale-[0.97]">
