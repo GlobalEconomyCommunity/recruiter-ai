@@ -1,7 +1,7 @@
 import { useParams, Link } from 'wouter';
 import { useApp } from '@/contexts/AppContext';
 import { useState } from 'react';
-import { ArrowLeft, UserPlus, Calendar, HelpCircle, Clock, XCircle, CheckCircle2, Bot, FileText, MessageCircle, History, AlertTriangle, Info } from 'lucide-react';
+import { ArrowLeft, UserPlus, Calendar, HelpCircle, Clock, XCircle, CheckCircle2, Bot, FileText, MessageCircle, History, AlertTriangle, Info, Play, Sparkles, ClipboardCheck } from 'lucide-react';
 import { candidateStatusConfig } from '@/lib/status-config';
 import { formatDate, formatDateTime, formatSalary, getInitials } from '@/lib/formatters';
 import { toast } from 'sonner';
@@ -37,6 +37,35 @@ const interviewFormatLabels: Record<InterviewFormat, string> = {
   video: 'Видеоинтервью',
 };
 
+const interviewStatusLabels: Record<Interview['status'], string> = {
+  scheduled: 'Запланировано',
+  in_progress: 'Проводится',
+  completed: 'Завершено',
+  cancelled: 'Отменено',
+};
+
+function getAnswerAnalysis(answer: string): string {
+  const normalizedAnswer = answer.trim();
+
+  if (normalizedAnswer.length >= 180) {
+    return 'Развёрнутый ответ с конкретными деталями и примерами.';
+  }
+
+  if (normalizedAnswer.length >= 80) {
+    return 'Содержательный ответ. Основные факты зафиксированы.';
+  }
+
+  return 'Ответ получен, но отдельные детали стоит уточнить у кандидата.';
+}
+
+function extractKeyFacts(answer: string): string[] {
+  return answer
+    .split(/[.!?\n]+/)
+    .map(item => item.trim())
+    .filter(item => item.length >= 12)
+    .slice(0, 3);
+}
+
 export default function CandidateDetail() {
   const { id } = useParams<{ id: string }>();
   const {
@@ -45,6 +74,8 @@ export default function CandidateDetail() {
     user,
     updateCandidateStatus,
     scheduleInterview,
+    startInterview,
+    completeInterview,
   } = useApp();
   const [activeTab, setActiveTab] = useState('overview');
   const [showConfirm, setShowConfirm] = useState<{
@@ -55,16 +86,24 @@ export default function CandidateDetail() {
   const [interviewDate, setInterviewDate] = useState(getDefaultInterviewDate);
   const [interviewFormat, setInterviewFormat] =
     useState<InterviewFormat>('text');
+  const [interviewAnswers, setInterviewAnswers] = useState<Record<string, string>>({});
 
   const candidate = candidates.find(c => c.id === id);
   if (!candidate) return <div className="text-center py-12 text-[#64748B]">Кандидат не найден</div>;
 
-  const candidateInterview = interviews.find(i => i.candidateId === id);
-  const scheduledInterview = interviews.find(
+  const candidateInterviews = interviews
+    .filter(interview => interview.candidateId === id)
+    .sort(
+      (first, second) =>
+        new Date(second.date).getTime() - new Date(first.date).getTime()
+    );
+
+  const scheduledInterview = candidateInterviews.find(
     interview =>
-      interview.candidateId === id &&
-      (interview.status === 'scheduled' || interview.status === 'in_progress')
+      interview.status === 'scheduled' || interview.status === 'in_progress'
   );
+
+  const candidateInterview = scheduledInterview ?? candidateInterviews[0];
   const sCfg = candidateStatusConfig[candidate.status];
 
   const openInterviewModal = () => {
@@ -135,6 +174,109 @@ export default function CandidateDetail() {
         ? 'Интервью перенесено'
         : 'AI-интервью назначено'
     );
+  };
+
+  const handleStartInterview = () => {
+    if (!candidateInterview) {
+      return;
+    }
+
+    setInterviewAnswers(
+      Object.fromEntries(
+        candidateInterview.questions.map(question => [
+          question.id,
+          question.answer,
+        ])
+      )
+    );
+
+    startInterview(candidateInterview.id);
+    setActiveTab('interview');
+    toast.success('AI-интервью начато');
+  };
+
+  const handleFillDemoAnswers = () => {
+    if (!candidateInterview) {
+      return;
+    }
+
+    const demoAnswers = Object.fromEntries(
+      candidateInterview.questions.map((question, index) => {
+        const answers = [
+          `У меня ${candidate.experience} опыта. На последнем месте работы я отвечал за задачи, близкие к требованиям вакансии «${candidate.vacancyTitle}», и регулярно взаимодействовал с командой и клиентами.`,
+          `Вакансия заинтересовала меня сочетанием ответственности, возможности влиять на результат и развиваться в направлении ${candidate.currentPosition}.`,
+          `Для меня важны понятные задачи, обратная связь от руководителя, профессиональная команда и согласованный формат работы. По срокам выхода готов обсудить ближайшую возможную дату.`,
+          `В похожей ситуации я сначала уточняю цель и ограничения, затем предлагаю план действий, согласовываю его с участниками и фиксирую результат.`,
+        ];
+
+        return [question.id, answers[index % answers.length]];
+      })
+    );
+
+    setInterviewAnswers(demoAnswers);
+    toast.success('Демо-ответы заполнены');
+  };
+
+  const handleCompleteInterview = () => {
+    if (!candidateInterview) {
+      return;
+    }
+
+    const missingQuestion = candidateInterview.questions.find(question => {
+      const answer = interviewAnswers[question.id]?.trim() ?? '';
+      return answer.length < 10;
+    });
+
+    if (missingQuestion) {
+      toast.error('Заполните содержательные ответы на все вопросы');
+      return;
+    }
+
+    const completedAt = new Date().toISOString();
+    const completedQuestions = candidateInterview.questions.map(question => {
+      const answer = interviewAnswers[question.id].trim();
+
+      return {
+        ...question,
+        answer,
+        analysis: getAnswerAnalysis(answer),
+        keyFacts: extractKeyFacts(answer),
+        topicsToVerify: candidate.aiAnalysis.toVerify.slice(0, 2),
+      };
+    });
+
+    const strengths = candidate.aiAnalysis.strengths.length > 0
+      ? candidate.aiAnalysis.strengths
+      : candidate.aiAnalysis.confirmedRequirements;
+
+    const topicsToVerify = Array.from(
+      new Set([
+        ...candidate.aiAnalysis.toVerify,
+        ...candidate.aiAnalysis.missingRequirements,
+      ])
+    );
+
+    completeInterview({
+      ...candidateInterview,
+      status: 'completed',
+      shortResult: 'Отчёт сформирован — требуется решение HR',
+      questions: completedQuestions,
+      report: {
+        summary:
+          `Кандидат ответил на ${completedQuestions.length} вопросов. ` +
+          'Ответы подтверждают релевантный опыт и позволяют перейти к решению HR, ' +
+          'однако отдельные факты необходимо проверить на следующем этапе.',
+        strengths: strengths.slice(0, 5),
+        risks: candidate.aiAnalysis.risks.slice(0, 5),
+        topicsToVerify: topicsToVerify.slice(0, 5),
+        recommendation:
+          candidate.aiAnalysis.recommendation ||
+          'Рекомендуется рассмотреть кандидата и уточнить отмеченные вопросы на встрече с HR.',
+        completedAt,
+      },
+    });
+
+    toast.success('Интервью завершено, отчёт сформирован');
   };
 
   const handleAction = (status: CandidateStatus, label: string, dangerous?: boolean) => {
@@ -489,28 +631,245 @@ export default function CandidateDetail() {
       {activeTab === 'interview' && (
         <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 space-y-5">
           {!candidateInterview ? (
-            <p className="text-sm text-[#94A3B8] text-center py-8">Интервью не проводилось</p>
+            <div className="text-center py-8">
+              <p className="text-sm text-[#94A3B8] mb-4">
+                Интервью ещё не назначено
+              </p>
+              <button
+                type="button"
+                onClick={openInterviewModal}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#10B981] text-white text-sm font-medium hover:bg-[#059669]"
+              >
+                <Calendar className="w-4 h-4" />
+                Назначить интервью
+              </button>
+            </div>
           ) : (
             <>
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-[#1E293B]">AI-интервью</h3>
-                <span className="text-xs text-[#94A3B8]">
-                  {formatDateTime(candidateInterview.date)} ·{' '}
-                  {interviewFormatLabels[candidateInterview.format]}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-[#1E293B]">AI-интервью</h3>
+                  <p className="text-xs text-[#94A3B8] mt-1">
+                    {formatDateTime(candidateInterview.date)} ·{' '}
+                    {interviewFormatLabels[candidateInterview.format]}
+                  </p>
+                </div>
+
+                <span className="self-start px-2.5 py-1 rounded-full bg-[#ECFDF5] text-xs font-medium text-[#047857]">
+                  {interviewStatusLabels[candidateInterview.status]}
                 </span>
               </div>
-              <p className="text-sm text-[#64748B]">Результат: <span className="font-medium text-[#1E293B]">{candidateInterview.shortResult}</span></p>
-              {candidateInterview.questions.length > 0 && (
-                <div className="space-y-4">
-                  {candidateInterview.questions.map((q, i) => (
-                    <div key={q.id} className="border border-[#E2E8F0] rounded-xl p-4">
-                      <p className="text-sm font-medium text-[#1E293B] mb-2">Вопрос {i + 1}: {q.question}</p>
-                      <p className="text-sm text-[#64748B] mb-2 bg-[#F8FAFC] rounded-lg p-3">{q.answer}</p>
-                      <p className="text-xs text-[#10B981] mb-1"><Bot className="w-3 h-3 inline mr-1" />Анализ: {q.analysis}</p>
-                      {q.keyFacts.length > 0 && <div className="flex flex-wrap gap-1 mt-1">{q.keyFacts.map((f, j) => <span key={j} className="px-2 py-0.5 rounded bg-[#ECFDF5] text-xs text-[#065F46]">{f}</span>)}</div>}
+
+              {candidateInterview.status === 'scheduled' && (
+                <div className="rounded-xl border border-[#D1FAE5] bg-[#F0FDF4] p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shrink-0">
+                      <Bot className="w-5 h-5 text-[#10B981]" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-semibold text-[#1E293B]">
+                        Вопросы подготовлены
+                      </h4>
+                      <p className="text-sm text-[#64748B] mt-1">
+                        Recruiter AI подготовил {candidateInterview.questions.length}{' '}
+                        вопросов на основе вакансии и анализа резюме.
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        <button
+                          type="button"
+                          onClick={handleStartInterview}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#10B981] text-white text-sm font-medium hover:bg-[#059669]"
+                        >
+                          <Play className="w-4 h-4" />
+                          Начать интервью
+                        </button>
+                        <button
+                          type="button"
+                          onClick={openInterviewModal}
+                          className="px-4 py-2 rounded-xl border border-[#E2E8F0] bg-white text-sm text-[#64748B] hover:bg-[#F8FAFC]"
+                        >
+                          Перенести
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {candidateInterview.status === 'in_progress' && (
+                <div className="space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl bg-[#F8FAFC] p-4">
+                    <div>
+                      <p className="text-sm font-medium text-[#1E293B]">
+                        Демо-режим проведения интервью
+                      </p>
+                      <p className="text-xs text-[#64748B] mt-1">
+                        Внесите ответы кандидата вручную или заполните демонстрационный сценарий.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleFillDemoAnswers}
+                      className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-[#D1FAE5] bg-white text-sm text-[#047857] hover:bg-[#ECFDF5]"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      Заполнить демо-ответы
+                    </button>
+                  </div>
+
+                  {candidateInterview.questions.map((question, index) => (
+                    <div key={question.id} className="border border-[#E2E8F0] rounded-xl p-4">
+                      <label className="block text-sm font-medium text-[#1E293B] mb-3">
+                        Вопрос {index + 1}: {question.question}
+                      </label>
+                      <textarea
+                        rows={4}
+                        value={interviewAnswers[question.id] ?? question.answer}
+                        onChange={event =>
+                          setInterviewAnswers(previous => ({
+                            ...previous,
+                            [question.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Ответ кандидата..."
+                        className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] text-sm text-[#1E293B] placeholder-[#94A3B8] outline-none focus:border-[#10B981] resize-y"
+                      />
                     </div>
                   ))}
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleCompleteInterview}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#10B981] text-white text-sm font-medium hover:bg-[#059669] shadow-sm"
+                    >
+                      <ClipboardCheck className="w-4 h-4" />
+                      Завершить и сформировать отчёт
+                    </button>
+                  </div>
                 </div>
+              )}
+
+              {candidateInterview.status === 'completed' && (
+                <div className="space-y-5">
+                  {candidateInterview.report && (
+                    <>
+                      <div className="rounded-xl bg-[#F0F7F2] p-5">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Bot className="w-4 h-4 text-[#10B981]" />
+                          <h4 className="text-sm font-semibold text-[#1E293B]">
+                            Итог Recruiter AI
+                          </h4>
+                        </div>
+                        <p className="text-sm text-[#64748B] leading-relaxed">
+                          {candidateInterview.report.summary}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="rounded-xl border border-[#D1FAE5] p-4">
+                          <h4 className="text-sm font-semibold text-[#065F46] mb-3">
+                            Сильные стороны
+                          </h4>
+                          {candidateInterview.report.strengths.length > 0 ? (
+                            <ul className="space-y-2">
+                              {candidateInterview.report.strengths.map((item, index) => (
+                                <li key={index} className="flex items-start gap-2 text-sm text-[#64748B]">
+                                  <CheckCircle2 className="w-4 h-4 text-[#10B981] mt-0.5 shrink-0" />
+                                  {item}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-[#94A3B8]">Недостаточно данных</p>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border border-[#FDE68A] p-4">
+                          <h4 className="text-sm font-semibold text-[#92400E] mb-3">
+                            Риски и ограничения
+                          </h4>
+                          {candidateInterview.report.risks.length > 0 ? (
+                            <ul className="space-y-2">
+                              {candidateInterview.report.risks.map((item, index) => (
+                                <li key={index} className="flex items-start gap-2 text-sm text-[#64748B]">
+                                  <AlertTriangle className="w-4 h-4 text-[#F59E0B] mt-0.5 shrink-0" />
+                                  {item}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-[#94A3B8]">Явные риски не выявлены</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] p-4">
+                        <h4 className="text-sm font-semibold text-[#1E40AF] mb-2">
+                          Что уточнить HR
+                        </h4>
+                        {candidateInterview.report.topicsToVerify.length > 0 ? (
+                          <ul className="space-y-1">
+                            {candidateInterview.report.topicsToVerify.map((item, index) => (
+                              <li key={index} className="text-sm text-[#475569]">
+                                • {item}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-[#64748B]">Дополнительных вопросов нет</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl border border-[#E2E8F0] p-4">
+                        <h4 className="text-sm font-semibold text-[#1E293B] mb-2">
+                          Рекомендация
+                        </h4>
+                        <p className="text-sm text-[#64748B] leading-relaxed">
+                          {candidateInterview.report.recommendation}
+                        </p>
+                        <p className="text-xs text-[#94A3B8] mt-3">
+                          Это информационный вывод Recruiter AI. Финальное решение принимает человек.
+                        </p>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-semibold text-[#1E293B]">
+                      Ответы и анализ
+                    </h4>
+                    {candidateInterview.questions.map((question, index) => (
+                      <div key={question.id} className="border border-[#E2E8F0] rounded-xl p-4">
+                        <p className="text-sm font-medium text-[#1E293B] mb-2">
+                          Вопрос {index + 1}: {question.question}
+                        </p>
+                        <p className="text-sm text-[#64748B] mb-3 bg-[#F8FAFC] rounded-lg p-3 whitespace-pre-wrap">
+                          {question.answer}
+                        </p>
+                        <p className="text-xs text-[#10B981] mb-2">
+                          <Bot className="w-3 h-3 inline mr-1" />
+                          Анализ: {question.analysis}
+                        </p>
+                        {question.keyFacts.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {question.keyFacts.map((fact, factIndex) => (
+                              <span key={factIndex} className="px-2 py-0.5 rounded bg-[#ECFDF5] text-xs text-[#065F46]">
+                                {fact}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {candidateInterview.status === 'cancelled' && (
+                <p className="text-sm text-[#94A3B8] text-center py-8">
+                  Интервью отменено
+                </p>
               )}
             </>
           )}

@@ -33,6 +33,8 @@ interface AppContextType {
   updateCandidateStatus: (id: string, status: Candidate['status']) => void;
   addActivity: (activity: AIActivity) => void;
   scheduleInterview: (interview: Interview) => void;
+  startInterview: (interviewId: string) => void;
+  completeInterview: (interview: Interview) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -318,6 +320,128 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ]);
   }, []);
 
+
+  const startInterview = useCallback((interviewId: string) => {
+    const now = new Date().toISOString();
+
+    setInterviews(previous =>
+      previous.map(interview =>
+        interview.id === interviewId
+          ? {
+              ...interview,
+              status: 'in_progress' as const,
+              shortResult: 'Интервью проводится',
+            }
+          : interview
+      )
+    );
+
+    setCandidates(previous =>
+      previous.map(candidate => {
+        const interview = interviews.find(item => item.id === interviewId);
+
+        if (!interview || candidate.id !== interview.candidateId) {
+          return candidate;
+        }
+
+        return {
+          ...candidate,
+          lastAction: 'AI-интервью начато',
+          updatedAt: now,
+        };
+      })
+    );
+  }, [interviews]);
+
+  const completeInterview = useCallback((interview: Interview) => {
+    const now = interview.report?.completedAt ?? new Date().toISOString();
+    const historyId = `history-interview-completed-${interview.id}`;
+    const completedActivityId = `activity-interview-completed-${interview.id}`;
+    const reportActivityId = `activity-interview-report-${interview.id}`;
+
+    setInterviews(previous => [
+      interview,
+      ...previous.filter(item => item.id !== interview.id),
+    ]);
+
+    setCandidates(previous =>
+      previous.map(candidate =>
+        candidate.id === interview.candidateId
+          ? {
+              ...candidate,
+              status: 'needs_hr_decision' as const,
+              stage: 'interviews_done' as const,
+              aiSummary:
+                interview.report?.summary || candidate.aiSummary,
+              lastAction: 'AI-интервью завершено, отчёт готов',
+              updatedAt: now,
+              history: [
+                ...candidate.history.filter(event => event.id !== historyId),
+                {
+                  id: historyId,
+                  event: 'AI-интервью завершено',
+                  description:
+                    'Recruiter AI сформировал отчёт и передал кандидата на решение HR.',
+                  timestamp: now,
+                  type: 'interview_completed' as const,
+                },
+              ],
+            }
+          : candidate
+      )
+    );
+
+    setVacancies(previous =>
+      previous.map(vacancy =>
+        vacancy.id === interview.vacancyId
+          ? {
+              ...vacancy,
+              currentStage: 'interviews_done' as const,
+              lastAIAction:
+                `Сформирован отчёт по интервью с ${interview.candidateName}`,
+              updatedAt: now,
+            }
+          : vacancy
+      )
+    );
+
+    setActivities(previous => [
+      {
+        id: reportActivityId,
+        type: 'report_formed',
+        title: 'Отчёт по интервью сформирован',
+        description:
+          `Recruiter AI подготовил выводы по кандидату ` +
+          `${interview.candidateName} и передал их HR.`,
+        timestamp: now,
+        vacancyId: interview.vacancyId,
+        vacancyTitle: interview.vacancyTitle,
+        candidateId: interview.candidateId,
+        candidateName: interview.candidateName,
+        status: 'needs_hr',
+      },
+      {
+        id: completedActivityId,
+        type: 'interview_completed',
+        title: 'AI-интервью завершено',
+        description:
+          `Кандидат ${interview.candidateName} ответил на ` +
+          `${interview.questions.length} вопросов.`,
+        timestamp: now,
+        vacancyId: interview.vacancyId,
+        vacancyTitle: interview.vacancyTitle,
+        candidateId: interview.candidateId,
+        candidateName: interview.candidateName,
+        status: 'completed',
+      },
+      ...previous.filter(
+        activity =>
+          activity.id !== completedActivityId &&
+          activity.id !== reportActivityId
+      ),
+    ]);
+  }, []);
+
   const addActivity = useCallback((activity: AIActivity) => {
     setActivities(previous => [
       activity,
@@ -339,6 +463,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updateCandidateStatus,
         addActivity,
         scheduleInterview,
+        startInterview,
+        completeInterview,
       }}
     >
       {children}

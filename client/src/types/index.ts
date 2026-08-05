@@ -221,6 +221,15 @@ export interface HistoryEvent {
   type: ActivityEventType;
 }
 
+export interface InterviewReport {
+  summary: string;
+  strengths: string[];
+  risks: string[];
+  topicsToVerify: string[];
+  recommendation: string;
+  completedAt: string;
+}
+
 export interface Interview {
   id: string;
   candidateId: string;
@@ -234,6 +243,7 @@ export interface Interview {
   responsiblePerson: string;
   shortResult: string;
   questions: InterviewQuestion[];
+  report?: InterviewReport;
 }
 
 export interface InterviewQuestion {
