@@ -1,0 +1,68 @@
+import type { Integration } from '@/types';
+
+export const defaultIntegrations: Integration[] = [
+  {
+    id: 'int-hh',
+    name: 'HH.ru',
+    description: 'Крупнейшая платформа поиска работы в России. Автоматический импорт откликов и публикация вакансий.',
+    capabilities: ['Импорт откликов', 'Публикация вакансий', 'Синхронизация статусов', 'Поиск кандидатов'],
+    status: 'planned',
+    icon: 'Briefcase',
+    category: 'Площадки',
+  },
+  {
+    id: 'int-superjob',
+    name: 'SuperJob',
+    description: 'Платформа для поиска работы и сотрудников. Интеграция для автоматизации работы с откликами.',
+    capabilities: ['Импорт откликов', 'Публикация вакансий', 'Фильтрация кандидатов'],
+    status: 'planned',
+    icon: 'Users',
+    category: 'Площадки',
+  },
+  {
+    id: 'int-avito',
+    name: 'Авито Работа',
+    description: 'Раздел вакансий на Авито. Широкий охват кандидатов в регионах.',
+    capabilities: ['Импорт откликов', 'Публикация вакансий', 'Региональный охват'],
+    status: 'unavailable',
+    icon: 'MapPin',
+    category: 'Площадки',
+  },
+  {
+    id: 'int-email',
+    name: 'Электронная почта',
+    description: 'Автоматическая отправка писем кандидатам и уведомлений HR-команде.',
+    capabilities: ['Отправка писем кандидатам', 'Уведомления HR', 'Шаблоны писем', 'Отслеживание открытий'],
+    status: 'demo',
+    icon: 'Mail',
+    category: 'Коммуникации',
+  },
+  {
+    id: 'int-telegram',
+    name: 'Telegram',
+    description: 'Бот для коммуникации с кандидатами и уведомлений HR через Telegram.',
+    capabilities: ['Чат с кандидатами', 'Уведомления HR', 'Быстрые ответы', 'Статусы доставки'],
+    status: 'planned',
+    icon: 'MessageCircle',
+    category: 'Коммуникации',
+  },
+  {
+    id: 'int-calendar',
+    name: 'Календарь',
+    description: 'Синхронизация с Google Calendar / Outlook для планирования интервью.',
+    capabilities: ['Планирование интервью', 'Синхронизация событий', 'Напоминания', 'Проверка доступности'],
+    status: 'planned',
+    icon: 'Calendar',
+    category: 'Инструменты',
+  },
+  {
+    id: 'int-ats',
+    name: 'Корпоративная ATS',
+    description: 'Интеграция с существующей системой управления кандидатами компании.',
+    capabilities: ['Синхронизация кандидатов', 'Обмен статусами', 'Единая база', 'Отчётность'],
+    status: 'unavailable',
+    icon: 'Database',
+    category: 'Инструменты',
+  },
+];
+

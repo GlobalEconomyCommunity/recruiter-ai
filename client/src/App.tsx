@@ -1,42 +1,59 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Switch, Redirect } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
-
+import { AppProvider } from "./contexts/AppContext";
+import AppLayout from "./components/layout/AppLayout";
+import Dashboard from "./pages/Dashboard";
+import Vacancies from "./pages/Vacancies";
+import VacancyNew from "./pages/VacancyNew";
+import VacancyDetail from "./pages/VacancyDetail";
+import Candidates from "./pages/Candidates";
+import CandidateDetail from "./pages/CandidateDetail";
+import Interviews from "./pages/Interviews";
+import AIActivityPage from "./pages/AIActivity";
+import Analytics from "./pages/Analytics";
+import Integrations from "./pages/Integrations";
+import SettingsPage from "./pages/Settings";
 
 function Router() {
   return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
+    <AppLayout>
+      <Switch>
+        <Route path="/"><Redirect to="/dashboard" /></Route>
+        <Route path="/dashboard" component={Dashboard} />
+        <Route path="/vacancies" component={Vacancies} />
+        <Route path="/vacancies/new" component={VacancyNew} />
+        <Route path="/vacancies/:id" component={VacancyDetail} />
+        <Route path="/candidates" component={Candidates} />
+        <Route path="/candidates/:id" component={CandidateDetail} />
+        <Route path="/interviews" component={Interviews} />
+        <Route path="/ai-activity" component={AIActivityPage} />
+        <Route path="/analytics" component={Analytics} />
+        <Route path="/integrations" component={Integrations} />
+        <Route path="/settings" component={SettingsPage} />
+        <Route component={NotFound} />
+      </Switch>
+    </AppLayout>
   );
 }
-
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
 
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+      <ThemeProvider defaultTheme="light">
+        <AppProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </AppProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );
 }
 
 export default App;
+
