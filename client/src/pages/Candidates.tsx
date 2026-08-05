@@ -1,15 +1,66 @@
-import { useState } from 'react';
-import { Link } from 'wouter';
-import { Search, Users, X, UserCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link, useLocation } from 'wouter';
+import {
+  Check,
+  Search,
+  Trash2,
+  UserCheck,
+  Users,
+  X,
+} from 'lucide-react';
+import { toast } from 'sonner';
 import { useApp } from '@/contexts/AppContext';
 import { candidateStatusConfig } from '@/lib/status-config';
 import { formatRelativeTime } from '@/lib/formatters';
+import { getStoredData, setStoredData } from '@/lib/storage';
+import type { Candidate } from '@/types';
+
+const COMPARISON_STORAGE_KEY = 'candidate_comparison_selection';
+const MAX_COMPARISON_CANDIDATES = 3;
+
+function loadComparisonSelection(candidates: Candidate[]): string[] {
+  const storedValue = getStoredData<unknown>(
+    COMPARISON_STORAGE_KEY,
+    []
+  );
+
+  if (!Array.isArray(storedValue)) {
+    return [];
+  }
+
+  const uniqueIds = Array.from(
+    new Set(storedValue.filter((value): value is string => typeof value === 'string'))
+  );
+
+  const validCandidates = uniqueIds
+    .map(id => candidates.find(candidate => candidate.id === id))
+    .filter((candidate): candidate is Candidate => Boolean(candidate));
+
+  const firstVacancyId = validCandidates[0]?.vacancyId;
+
+  return validCandidates
+    .filter(candidate => candidate.vacancyId === firstVacancyId)
+    .slice(0, MAX_COMPARISON_CANDIDATES)
+    .map(candidate => candidate.id);
+}
 
 export default function Candidates() {
   const { candidates, vacancies } = useApp();
+  const [, navigate] = useLocation();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [vacancyFilter, setVacancyFilter] = useState<string>('all');
+  const [selectedIds, setSelectedIds] = useState<string[]>(() =>
+    loadComparisonSelection(candidates)
+  );
+
+  useEffect(() => {
+    setStoredData(COMPARISON_STORAGE_KEY, selectedIds);
+  }, [selectedIds]);
+
+  const selectedCandidates = selectedIds
+    .map(id => candidates.find(candidate => candidate.id === id))
+    .filter((candidate): candidate is Candidate => Boolean(candidate));
 
   const shortlistCount = candidates.filter(
     candidate => candidate.status === 'recommended'
@@ -50,6 +101,47 @@ export default function Candidates() {
     );
   };
 
+  const toggleCandidateSelection = (candidate: Candidate) => {
+    if (selectedIds.includes(candidate.id)) {
+      setSelectedIds(previous =>
+        previous.filter(id => id !== candidate.id)
+      );
+      return;
+    }
+
+    if (selectedIds.length >= MAX_COMPARISON_CANDIDATES) {
+      toast.error('Можно сравнить не более трёх кандидатов');
+      return;
+    }
+
+    const selectedVacancyId = selectedCandidates[0]?.vacancyId;
+
+    if (
+      selectedVacancyId &&
+      selectedVacancyId !== candidate.vacancyId
+    ) {
+      toast.error(
+        'Для сравнения выберите кандидатов на одну и ту же вакансию'
+      );
+      return;
+    }
+
+    setSelectedIds(previous => [...previous, candidate.id]);
+  };
+
+  const clearSelection = () => {
+    setSelectedIds([]);
+  };
+
+  const openComparison = () => {
+    if (selectedIds.length < 2) {
+      toast.error('Выберите минимум двух кандидатов');
+      return;
+    }
+
+    navigate('/candidates/compare');
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -60,19 +152,75 @@ export default function Candidates() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={showShortlist}
-          className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
-            statusFilter === 'recommended'
-              ? 'bg-[#10B981] border-[#10B981] text-white'
-              : 'bg-white border-[#D1FAE5] text-[#047857] hover:bg-[#ECFDF5]'
-          }`}
-        >
-          <UserCheck className="w-4 h-4" />
-          Shortlist: {shortlistCount}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={showShortlist}
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+              statusFilter === 'recommended'
+                ? 'bg-[#10B981] border-[#10B981] text-white'
+                : 'bg-white border-[#D1FAE5] text-[#047857] hover:bg-[#ECFDF5]'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            Shortlist: {shortlistCount}
+          </button>
+
+          <button
+            type="button"
+            onClick={openComparison}
+            disabled={selectedIds.length < 2}
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+              selectedIds.length >= 2
+                ? 'bg-[#1E293B] border-[#1E293B] text-white hover:bg-[#0F172A]'
+                : 'bg-[#F8FAFC] border-[#E2E8F0] text-[#94A3B8] cursor-not-allowed'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            Сравнить: {selectedIds.length}
+          </button>
+        </div>
       </div>
+
+      {selectedCandidates.length > 0 && (
+        <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded-2xl p-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-[#166534]">
+                Выбрано для сравнения: {selectedCandidates.length} из 3
+              </p>
+              <p className="text-xs text-[#15803D] mt-1">
+                Сравнивать можно только кандидатов на одну вакансию.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedCandidates.map(candidate => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  onClick={() => toggleCandidateSelection(candidate)}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-[#BBF7D0] text-xs font-medium text-[#166534] hover:border-[#86EFAC]"
+                  title="Убрать из сравнения"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {candidate.name}
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              ))}
+
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-[#64748B] hover:bg-white"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Очистить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-[#E2E8F0] flex-1 max-w-sm">
@@ -149,6 +297,9 @@ export default function Candidates() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
+                  <th className="w-16 text-center px-4 py-3 text-xs font-medium text-[#64748B] uppercase tracking-wider">
+                    Сравнить
+                  </th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-[#64748B] uppercase tracking-wider">
                     Кандидат
                   </th>
@@ -174,12 +325,27 @@ export default function Candidates() {
                 {filtered.map(candidate => {
                   const statusConfig =
                     candidateStatusConfig[candidate.status];
+                  const isSelected = selectedIds.includes(candidate.id);
 
                   return (
                     <tr
                       key={candidate.id}
-                      className="border-b border-[#EDF2F7] hover:bg-[#F8FAFC] transition-colors"
+                      className={`border-b border-[#EDF2F7] transition-colors ${
+                        isSelected
+                          ? 'bg-[#F0FDF4]'
+                          : 'hover:bg-[#F8FAFC]'
+                      }`}
                     >
+                      <td className="px-4 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleCandidateSelection(candidate)}
+                          aria-label={`Выбрать ${candidate.name} для сравнения`}
+                          className="w-4 h-4 rounded border-[#CBD5E1] accent-[#10B981] cursor-pointer"
+                        />
+                      </td>
+
                       <td className="px-4 py-3">
                         <Link
                           href={`/candidates/${candidate.id}`}
