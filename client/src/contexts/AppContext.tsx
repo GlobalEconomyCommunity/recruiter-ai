@@ -8,10 +8,12 @@ import {
 } from 'react';
 import type {
   AIActivity,
+  AISettings,
   Candidate,
   CandidateDecision,
   Company,
   Interview,
+  NotificationSettings,
   UserProfile,
   Vacancy,
 } from '@/types';
@@ -29,6 +31,12 @@ interface AppContextType {
   activities: AIActivity[];
   user: UserProfile;
   company: Company;
+  aiSettings: AISettings;
+  notificationSettings: NotificationSettings;
+  updateUser: (updates: Partial<Omit<UserProfile, 'company'>>) => void;
+  updateCompany: (updates: Partial<Company>) => void;
+  updateAISettings: (updates: Partial<AISettings>) => void;
+  updateNotificationSettings: (updates: Partial<NotificationSettings>) => void;
   addVacancy: (vacancy: Vacancy) => void;
   updateVacancy: (id: string, updates: Partial<Vacancy>) => void;
   updateCandidateStatus: (id: string, status: Candidate['status']) => void;
@@ -44,6 +52,22 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | null>(null);
+
+const defaultAISettings: AISettings = {
+  autoProcessApplications: true,
+  autoScreening: true,
+  allowAutoReject: false,
+  allowAutoAdvance: false,
+  communicationStyle: 'formal',
+};
+
+const defaultNotificationSettings: NotificationSettings = {
+  newCandidates: true,
+  screeningCompleted: true,
+  hrDecisionRequired: true,
+  interviewsCompleted: true,
+  weeklyReport: true,
+};
 
 
 function createVacancyAnalyzedActivity(vacancy: Vacancy): AIActivity {
@@ -202,6 +226,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadCollection('activities', defaultActivities)
   );
 
+  const [company, setCompany] = useState<Company>(() => ({
+    ...demoCompany,
+    ...getStoredData<Partial<Company>>('company', {}),
+  }));
+
+  const [user, setUser] = useState<UserProfile>(() => {
+    const storedCompany = {
+      ...demoCompany,
+      ...getStoredData<Partial<Company>>('company', {}),
+    };
+
+    return {
+      ...demoUser,
+      ...getStoredData<Partial<UserProfile>>('user', {}),
+      company: storedCompany,
+    };
+  });
+
+  const [aiSettings, setAISettings] = useState<AISettings>(() => ({
+    ...defaultAISettings,
+    ...getStoredData<Partial<AISettings>>('ai_settings', {}),
+  }));
+
+  const [notificationSettings, setNotificationSettings] =
+    useState<NotificationSettings>(() => ({
+      ...defaultNotificationSettings,
+      ...getStoredData<Partial<NotificationSettings>>(
+        'notification_settings',
+        {}
+      ),
+    }));
+
   useEffect(() => {
     setStoredData('vacancies', vacancies);
   }, [vacancies]);
@@ -217,6 +273,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setStoredData('interviews', interviews);
   }, [interviews]);
+
+  useEffect(() => {
+    setStoredData('company', company);
+
+    setUser(previous =>
+      previous.company === company
+        ? previous
+        : { ...previous, company }
+    );
+  }, [company]);
+
+  useEffect(() => {
+    setStoredData('user', user);
+  }, [user]);
+
+  useEffect(() => {
+    setStoredData('ai_settings', aiSettings);
+  }, [aiSettings]);
+
+  useEffect(() => {
+    setStoredData('notification_settings', notificationSettings);
+  }, [notificationSettings]);
+
+  const updateUser = useCallback(
+    (updates: Partial<Omit<UserProfile, 'company'>>) => {
+      setUser(previous => ({
+        ...previous,
+        ...updates,
+        company,
+      }));
+    },
+    [company]
+  );
+
+  const updateCompany = useCallback((updates: Partial<Company>) => {
+    setCompany(previous => ({ ...previous, ...updates }));
+  }, []);
+
+  const updateAISettings = useCallback((updates: Partial<AISettings>) => {
+    setAISettings(previous => ({ ...previous, ...updates }));
+  }, []);
+
+  const updateNotificationSettings = useCallback(
+    (updates: Partial<NotificationSettings>) => {
+      setNotificationSettings(previous => ({ ...previous, ...updates }));
+    },
+    []
+  );
 
   /**
    * Добавляет стартовое событие для пользовательских вакансий,
@@ -538,14 +642,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
                   label: config.label,
                   comment: comment.trim(),
                   decidedAt: now,
-                  decidedBy: demoUser.name,
+                  decidedBy: user.name,
                 },
                 history: [
                   {
                     id: historyId,
                     event: config.label,
                     description:
-                      `${demoUser.name}: ${comment.trim()}`,
+                      `${user.name}: ${comment.trim()}`,
                     timestamp: now,
                     type: 'hr_decision_recorded' as const,
                   },
@@ -583,7 +687,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           type: 'hr_decision_recorded',
           title: config.activityTitle,
           description:
-            `${demoUser.name} принял решение по кандидату ` +
+            `${user.name} принял решение по кандидату ` +
             `${candidate.name}. Комментарий: ${comment.trim()}`,
           timestamp: now,
           vacancyId: candidate.vacancyId,
@@ -595,7 +699,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...previous,
       ]);
     },
-    [candidates]
+    [candidates, user.name]
   );
 
   const addActivity = useCallback((activity: AIActivity) => {
@@ -612,8 +716,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         candidates,
         interviews,
         activities,
-        user: demoUser,
-        company: demoCompany,
+        user,
+        company,
+        aiSettings,
+        notificationSettings,
+        updateUser,
+        updateCompany,
+        updateAISettings,
+        updateNotificationSettings,
         addVacancy,
         updateVacancy,
         updateCandidateStatus,

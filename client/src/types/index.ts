@@ -96,6 +96,29 @@ export interface UserProfile {
   company: Company;
 }
 
+export type CommunicationStyle = 'formal' | 'friendly' | 'neutral';
+
+export interface AISettings {
+  autoProcessApplications: boolean;
+  autoScreening: boolean;
+  allowAutoReject: boolean;
+  allowAutoAdvance: boolean;
+  communicationStyle: CommunicationStyle;
+}
+
+export interface NotificationSettings {
+  newCandidates: boolean;
+  screeningCompleted: boolean;
+  hrDecisionRequired: boolean;
+  interviewsCompleted: boolean;
+  weeklyReport: boolean;
+}
+
+export interface AppSettings {
+  ai: AISettings;
+  notifications: NotificationSettings;
+}
+
 export interface Vacancy {
   id: string;
   title: string;
