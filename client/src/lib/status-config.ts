@@ -1,15 +1,24 @@
-import type { CandidateStatus, VacancyStatus, AIActivityStatus, IntegrationStatus, RecruitmentStage } from '@/types';
+import type {
+  CandidateStatus,
+  VacancyStatus,
+  AIActivityStatus,
+  IntegrationStatus,
+  RecruitmentStage,
+} from '@/types';
 
 // Centralized status configuration — labels, colors, and descriptions
-
-export const candidateStatusConfig: Record<CandidateStatus, { label: string; color: string; bg: string; textColor: string }> = {
+export const candidateStatusConfig: Record<
+  CandidateStatus,
+  { label: string; color: string; bg: string; textColor: string }
+> = {
   new: { label: 'Новый', color: '#64748B', bg: '#F1F5F9', textColor: '#475569' },
   ai_analyzing: { label: 'AI анализирует', color: '#10B981', bg: '#ECFDF5', textColor: '#065F46' },
   needs_clarification: { label: 'Требуется уточнение', color: '#F59E0B', bg: '#FFFBEB', textColor: '#92400E' },
   screening_done: { label: 'Screening завершён', color: '#10B981', bg: '#ECFDF5', textColor: '#065F46' },
   interview_scheduled: { label: 'Интервью назначено', color: '#3B82F6', bg: '#EFF6FF', textColor: '#1E40AF' },
   interview_done: { label: 'Интервью завершено', color: '#10B981', bg: '#ECFDF5', textColor: '#065F46' },
-  recommended: { label: 'Рекомендован', color: '#10B981', bg: '#ECFDF5', textColor: '#065F46' },
+  final_interview: { label: 'Финальное интервью', color: '#7C3AED', bg: '#F5F3FF', textColor: '#5B21B6' },
+  recommended: { label: 'В shortlist', color: '#10B981', bg: '#ECFDF5', textColor: '#065F46' },
   needs_hr_decision: { label: 'Требуется решение HR', color: '#3B82F6', bg: '#EFF6FF', textColor: '#1E40AF' },
   postponed: { label: 'Отложен', color: '#64748B', bg: '#F1F5F9', textColor: '#475569' },
   rejected: { label: 'Отклонён HR', color: '#EF4444', bg: '#FEF2F2', textColor: '#991B1B' },

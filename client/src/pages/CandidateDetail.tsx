@@ -5,7 +5,7 @@ import { ArrowLeft, UserPlus, Calendar, HelpCircle, Clock, XCircle, CheckCircle2
 import { candidateStatusConfig } from '@/lib/status-config';
 import { formatDate, formatDateTime, formatSalary, getInitials } from '@/lib/formatters';
 import { toast } from 'sonner';
-import type { CandidateStatus, Interview, InterviewFormat } from '@/types';
+import type { CandidateDecision, Interview, InterviewFormat } from '@/types';
 
 
 function toDateTimeLocalValue(date: Date): string {
@@ -44,6 +44,43 @@ const interviewStatusLabels: Record<Interview['status'], string> = {
   cancelled: 'Отменено',
 };
 
+
+const hrDecisionOptions: Array<{
+  value: CandidateDecision;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'recommend_hire',
+    label: 'Рекомендовать к найму',
+    description: 'Добавить кандидата в shortlist работодателя.',
+  },
+  {
+    value: 'invite_final_interview',
+    label: 'Пригласить на финальное интервью',
+    description: 'Передать кандидата на заключительный этап с руководителем.',
+  },
+  {
+    value: 'request_info',
+    label: 'Запросить дополнительную информацию',
+    description: 'Вернуть кандидата на уточнение недостающих данных.',
+  },
+  {
+    value: 'postpone',
+    label: 'Отложить кандидата',
+    description: 'Сохранить кандидата без окончательного решения.',
+  },
+  {
+    value: 'reject',
+    label: 'Отклонить кандидата',
+    description: 'Завершить работу с кандидатом по этой вакансии.',
+  },
+];
+
+const hrDecisionLabels = Object.fromEntries(
+  hrDecisionOptions.map(option => [option.value, option.label])
+) as Record<CandidateDecision, string>;
+
 function getAnswerAnalysis(answer: string): string {
   const normalizedAnswer = answer.trim();
 
@@ -72,16 +109,16 @@ export default function CandidateDetail() {
     candidates,
     interviews,
     user,
-    updateCandidateStatus,
     scheduleInterview,
     startInterview,
     completeInterview,
+    submitHRDecision,
   } = useApp();
   const [activeTab, setActiveTab] = useState('overview');
-  const [showConfirm, setShowConfirm] = useState<{
-    action: string;
-    status: CandidateStatus;
-  } | null>(null);
+  const [showDecisionModal, setShowDecisionModal] = useState(false);
+  const [selectedDecision, setSelectedDecision] =
+    useState<CandidateDecision>('recommend_hire');
+  const [decisionComment, setDecisionComment] = useState('');
   const [showInterviewModal, setShowInterviewModal] = useState(false);
   const [interviewDate, setInterviewDate] = useState(getDefaultInterviewDate);
   const [interviewFormat, setInterviewFormat] =
@@ -279,21 +316,29 @@ export default function CandidateDetail() {
     toast.success('Интервью завершено, отчёт сформирован');
   };
 
-  const handleAction = (status: CandidateStatus, label: string, dangerous?: boolean) => {
-    if (dangerous) {
-      setShowConfirm({ action: label, status });
-    } else {
-      updateCandidateStatus(candidate.id, status);
-      toast.success(`Статус изменён: ${candidateStatusConfig[status].label}`);
-    }
+  const openDecisionModal = (decision: CandidateDecision) => {
+    setSelectedDecision(decision);
+    setDecisionComment(candidate.hrDecision?.comment ?? '');
+    setShowDecisionModal(true);
   };
 
-  const confirmAction = () => {
-    if (showConfirm) {
-      updateCandidateStatus(candidate.id, showConfirm.status);
-      toast.success(`Статус изменён: ${candidateStatusConfig[showConfirm.status].label}`);
-      setShowConfirm(null);
+  const handleSubmitDecision = () => {
+    const normalizedComment = decisionComment.trim();
+
+    if (normalizedComment.length < 10) {
+      toast.error('Добавьте комментарий HR длиной не менее 10 символов');
+      return;
     }
+
+    submitHRDecision(
+      candidate.id,
+      selectedDecision,
+      normalizedComment
+    );
+
+    setShowDecisionModal(false);
+    setDecisionComment('');
+    toast.success(`Решение сохранено: ${hrDecisionLabels[selectedDecision]}`);
   };
 
   const tabs = [
@@ -411,15 +456,99 @@ export default function CandidateDetail() {
         </div>
       )}
 
-      {/* Confirm dialog */}
-      {showConfirm && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowConfirm(null)}>
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-[#1E293B] mb-2">Подтверждение</h3>
-            <p className="text-sm text-[#64748B] mb-5">Вы уверены, что хотите выполнить действие «{showConfirm.action}»?</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setShowConfirm(null)} className="px-4 py-2 rounded-xl border border-[#E2E8F0] text-sm text-[#64748B]">Отмена</button>
-              <button onClick={confirmAction} className="px-4 py-2 rounded-xl bg-[#EF4444] text-white text-sm font-medium">Подтвердить</button>
+      {showDecisionModal && (
+        <div
+          className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowDecisionModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-xl"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 mb-5">
+              <div>
+                <h3 className="text-lg font-semibold text-[#1E293B]">
+                  Решение работодателя
+                </h3>
+                <p className="text-sm text-[#64748B] mt-1">
+                  {candidate.name} · {candidate.vacancyTitle}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDecisionModal(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-[#94A3B8] hover:bg-[#F1F5F9]"
+                aria-label="Закрыть"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[#1E293B] mb-1.5">
+                  Решение
+                </label>
+                <select
+                  value={selectedDecision}
+                  onChange={event =>
+                    setSelectedDecision(
+                      event.target.value as CandidateDecision
+                    )
+                  }
+                  className="w-full px-4 py-2.5 rounded-xl border border-[#E2E8F0] text-sm text-[#1E293B] outline-none focus:border-[#10B981]"
+                >
+                  {hrDecisionOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-[#64748B] mt-2">
+                  {
+                    hrDecisionOptions.find(
+                      option => option.value === selectedDecision
+                    )?.description
+                  }
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#1E293B] mb-1.5">
+                  Комментарий HR *
+                </label>
+                <textarea
+                  rows={4}
+                  value={decisionComment}
+                  onChange={event => setDecisionComment(event.target.value)}
+                  placeholder="Объясните решение и зафиксируйте следующий шаг..."
+                  className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] text-sm text-[#1E293B] placeholder-[#94A3B8] outline-none focus:border-[#10B981] resize-y"
+                />
+                <p className="text-xs text-[#94A3B8] mt-1">
+                  Комментарий будет сохранён в истории кандидата и ленте AI.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowDecisionModal(false)}
+                className="px-4 py-2 rounded-xl border border-[#E2E8F0] text-sm text-[#64748B] hover:bg-[#F8FAFC]"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitDecision}
+                className={`px-4 py-2 rounded-xl text-white text-sm font-medium ${
+                  selectedDecision === 'reject'
+                    ? 'bg-[#EF4444] hover:bg-[#DC2626]'
+                    : 'bg-[#10B981] hover:bg-[#059669]'
+                }`}
+              >
+                Сохранить решение
+              </button>
             </div>
           </div>
         </div>
@@ -447,20 +576,45 @@ export default function CandidateDetail() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => handleAction('recommended', 'Пригласить')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#10B981] text-white text-xs font-medium hover:bg-[#059669] transition-colors">
-              <UserPlus className="w-3.5 h-3.5" /> Пригласить
+            <button
+              type="button"
+              onClick={() => openDecisionModal('recommend_hire')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#10B981] text-white text-xs font-medium hover:bg-[#059669] transition-colors"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Решение HR
             </button>
-            <button onClick={openInterviewModal} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-[#F8FAFC]">
-              <Calendar className="w-3.5 h-3.5" /> Интервью
+            <button
+              type="button"
+              onClick={openInterviewModal}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-[#F8FAFC]"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              Интервью
             </button>
-            <button onClick={() => handleAction('needs_clarification', 'Запросить информацию')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-[#F8FAFC]">
-              <HelpCircle className="w-3.5 h-3.5" /> Уточнить
+            <button
+              type="button"
+              onClick={() => openDecisionModal('request_info')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-[#F8FAFC]"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              Уточнить
             </button>
-            <button onClick={() => handleAction('postponed', 'Отложить')} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-[#F8FAFC]">
-              <Clock className="w-3.5 h-3.5" /> Отложить
+            <button
+              type="button"
+              onClick={() => openDecisionModal('postpone')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E2E8F0] text-xs text-[#64748B] hover:bg-[#F8FAFC]"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Отложить
             </button>
-            <button onClick={() => handleAction('rejected', 'Отклонить', true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#FCA5A5] text-xs text-[#DC2626] hover:bg-[#FEF2F2]">
-              <XCircle className="w-3.5 h-3.5" /> Отклонить
+            <button
+              type="button"
+              onClick={() => openDecisionModal('reject')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#FCA5A5] text-xs text-[#DC2626] hover:bg-[#FEF2F2]"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              Отклонить
             </button>
           </div>
         </div>
@@ -496,6 +650,26 @@ export default function CandidateDetail() {
               <p className="text-sm text-[#64748B]"><span className="font-medium text-[#1E293B]">Последнее действие:</span> {candidate.lastAction}</p>
               <p className="text-xs text-[#94A3B8] mt-1">Обновлено: {formatDate(candidate.updatedAt)}</p>
             </div>
+            {candidate.hrDecision && (
+              <div className="pt-3 border-t border-[#EDF2F7]">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#10B981]" />
+                  <p className="text-sm font-medium text-[#1E293B]">
+                    Последнее решение HR
+                  </p>
+                </div>
+                <p className="text-sm text-[#1E293B]">
+                  {candidate.hrDecision.label}
+                </p>
+                <p className="text-sm text-[#64748B] mt-1">
+                  {candidate.hrDecision.comment}
+                </p>
+                <p className="text-xs text-[#94A3B8] mt-2">
+                  {candidate.hrDecision.decidedBy} ·{' '}
+                  {formatDateTime(candidate.hrDecision.decidedAt)}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

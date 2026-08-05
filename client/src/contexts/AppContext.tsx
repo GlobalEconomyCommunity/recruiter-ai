@@ -9,6 +9,7 @@ import {
 import type {
   AIActivity,
   Candidate,
+  CandidateDecision,
   Company,
   Interview,
   UserProfile,
@@ -35,6 +36,11 @@ interface AppContextType {
   scheduleInterview: (interview: Interview) => void;
   startInterview: (interviewId: string) => void;
   completeInterview: (interview: Interview) => void;
+  submitHRDecision: (
+    candidateId: string,
+    decision: CandidateDecision,
+    comment: string
+  ) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -130,6 +136,54 @@ function getInterviewFormatLabel(format: Interview['format']): string {
 
   return labels[format];
 }
+
+
+const hrDecisionConfig: Record<
+  CandidateDecision,
+  {
+    label: string;
+    status: Candidate['status'];
+    candidateAction: string;
+    activityTitle: string;
+    activityStatus: AIActivity['status'];
+  }
+> = {
+  recommend_hire: {
+    label: 'Рекомендовать к найму',
+    status: 'recommended',
+    candidateAction: 'Кандидат включён в shortlist',
+    activityTitle: 'Кандидат включён в shortlist',
+    activityStatus: 'completed',
+  },
+  invite_final_interview: {
+    label: 'Пригласить на финальное интервью',
+    status: 'final_interview',
+    candidateAction: 'Кандидат приглашён на финальное интервью',
+    activityTitle: 'Назначен финальный этап',
+    activityStatus: 'completed',
+  },
+  request_info: {
+    label: 'Запросить дополнительную информацию',
+    status: 'needs_clarification',
+    candidateAction: 'HR запросил дополнительную информацию',
+    activityTitle: 'HR запросил уточнение',
+    activityStatus: 'needs_clarification',
+  },
+  postpone: {
+    label: 'Отложить кандидата',
+    status: 'postponed',
+    candidateAction: 'Решение по кандидату отложено',
+    activityTitle: 'Решение HR отложено',
+    activityStatus: 'waiting',
+  },
+  reject: {
+    label: 'Отклонить кандидата',
+    status: 'rejected',
+    candidateAction: 'Кандидат отклонён HR',
+    activityTitle: 'Кандидат отклонён HR',
+    activityStatus: 'completed',
+  },
+};
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [vacancies, setVacancies] = useState<Vacancy[]>(() =>
@@ -442,6 +496,108 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ]);
   }, []);
 
+
+  const submitHRDecision = useCallback(
+    (
+      candidateId: string,
+      decision: CandidateDecision,
+      comment: string
+    ) => {
+      const candidate = candidates.find(item => item.id === candidateId);
+
+      if (!candidate) {
+        return;
+      }
+
+      const config = hrDecisionConfig[decision];
+      const now = new Date().toISOString();
+      const decisionId = `hr-decision-${candidate.id}-${Date.now()}`;
+      const historyId = `history-${decisionId}`;
+      const activityId = `activity-${decisionId}`;
+
+      const wasShortlisted = candidate.status === 'recommended';
+      const willBeShortlisted = config.status === 'recommended';
+      const shortlistDelta =
+        Number(willBeShortlisted) - Number(wasShortlisted);
+
+      setCandidates(previous =>
+        previous.map(item =>
+          item.id === candidate.id
+            ? {
+                ...item,
+                status: config.status,
+                stage:
+                  decision === 'recommend_hire'
+                    ? ('shortlist_forming' as const)
+                    : item.stage,
+                lastAction: config.candidateAction,
+                updatedAt: now,
+                hrDecision: {
+                  id: decisionId,
+                  decision,
+                  label: config.label,
+                  comment: comment.trim(),
+                  decidedAt: now,
+                  decidedBy: demoUser.name,
+                },
+                history: [
+                  {
+                    id: historyId,
+                    event: config.label,
+                    description:
+                      `${demoUser.name}: ${comment.trim()}`,
+                    timestamp: now,
+                    type: 'hr_decision_recorded' as const,
+                  },
+                  ...item.history.filter(event => event.id !== historyId),
+                ],
+              }
+            : item
+        )
+      );
+
+      setVacancies(previous =>
+        previous.map(vacancy =>
+          vacancy.id === candidate.vacancyId
+            ? {
+                ...vacancy,
+                candidatesShortlisted: Math.max(
+                  0,
+                  vacancy.candidatesShortlisted + shortlistDelta
+                ),
+                currentStage:
+                  willBeShortlisted
+                    ? ('shortlist_forming' as const)
+                    : vacancy.currentStage,
+                lastAIAction:
+                  `${config.candidateAction}: ${candidate.name}`,
+                updatedAt: now,
+              }
+            : vacancy
+        )
+      );
+
+      setActivities(previous => [
+        {
+          id: activityId,
+          type: 'hr_decision_recorded',
+          title: config.activityTitle,
+          description:
+            `${demoUser.name} принял решение по кандидату ` +
+            `${candidate.name}. Комментарий: ${comment.trim()}`,
+          timestamp: now,
+          vacancyId: candidate.vacancyId,
+          vacancyTitle: candidate.vacancyTitle,
+          candidateId: candidate.id,
+          candidateName: candidate.name,
+          status: config.activityStatus,
+        },
+        ...previous,
+      ]);
+    },
+    [candidates]
+  );
+
   const addActivity = useCallback((activity: AIActivity) => {
     setActivities(previous => [
       activity,
@@ -465,6 +621,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         scheduleInterview,
         startInterview,
         completeInterview,
+        submitHRDecision,
       }}
     >
       {children}

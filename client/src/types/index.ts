@@ -11,14 +11,15 @@ export type CandidateStatus =
   | 'screening_done'
   | 'interview_scheduled'
   | 'interview_done'
+  | 'final_interview'
   | 'recommended'
   | 'needs_hr_decision'
   | 'postponed'
   | 'rejected';
 
 export type CandidateDecision =
-  | 'invite_next_stage'
-  | 'schedule_interview'
+  | 'recommend_hire'
+  | 'invite_final_interview'
   | 'request_info'
   | 'postpone'
   | 'reject';
@@ -71,6 +72,7 @@ export type ActivityEventType =
   | 'interview_completed'
   | 'report_formed'
   | 'hr_decision_needed'
+  | 'hr_decision_recorded'
   | 'task_paused'
   | 'task_resumed';
 
@@ -151,6 +153,7 @@ export interface Candidate {
   messages: Message[];
   files: CandidateFile[];
   history: HistoryEvent[];
+  hrDecision?: HRDecisionRecord;
 }
 
 export interface CandidateResume {
@@ -219,6 +222,15 @@ export interface HistoryEvent {
   description: string;
   timestamp: string;
   type: ActivityEventType;
+}
+
+export interface HRDecisionRecord {
+  id: string;
+  decision: CandidateDecision;
+  label: string;
+  comment: string;
+  decidedAt: string;
+  decidedBy: string;
 }
 
 export interface InterviewReport {
