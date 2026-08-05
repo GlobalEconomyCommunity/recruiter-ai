@@ -32,6 +32,7 @@ interface AppContextType {
   updateVacancy: (id: string, updates: Partial<Vacancy>) => void;
   updateCandidateStatus: (id: string, status: Candidate['status']) => void;
   addActivity: (activity: AIActivity) => void;
+  scheduleInterview: (interview: Interview) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -118,6 +119,16 @@ function loadCollection<T extends { id: string }>(
   return mergeStoredWithDefaults(storedValue, defaults);
 }
 
+function getInterviewFormatLabel(format: Interview['format']): string {
+  const labels: Record<Interview['format'], string> = {
+    text: 'текстовый чат',
+    voice: 'голосовое интервью',
+    video: 'видеоинтервью',
+  };
+
+  return labels[format];
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [vacancies, setVacancies] = useState<Vacancy[]>(() =>
     loadCollection('vacancies', defaultVacancies)
@@ -127,7 +138,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadCollection('candidates', defaultCandidates)
   );
 
-  const [interviews] = useState<Interview[]>(defaultInterviews);
+  const [interviews, setInterviews] = useState<Interview[]>(() =>
+    loadCollection('interviews', defaultInterviews)
+  );
 
   const [activities, setActivities] = useState<AIActivity[]>(() =>
     loadCollection('activities', defaultActivities)
@@ -144,6 +157,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setStoredData('activities', activities);
   }, [activities]);
+
+  useEffect(() => {
+    setStoredData('interviews', interviews);
+  }, [interviews]);
 
   /**
    * Добавляет стартовое событие для пользовательских вакансий,
@@ -226,6 +243,81 @@ export function AppProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const scheduleInterview = useCallback((interview: Interview) => {
+    const scheduledAt = new Date(interview.date);
+    const now = new Date().toISOString();
+
+    const formattedDate = new Intl.DateTimeFormat('ru-RU', {
+      dateStyle: 'long',
+      timeStyle: 'short',
+    }).format(scheduledAt);
+
+    const historyId = `history-interview-${interview.id}`;
+    const activityId = `activity-interview-${interview.id}`;
+
+    setInterviews(previous => [
+      interview,
+      ...previous.filter(item => item.id !== interview.id),
+    ]);
+
+    setCandidates(previous =>
+      previous.map(candidate =>
+        candidate.id === interview.candidateId
+          ? {
+              ...candidate,
+              status: 'interview_scheduled' as const,
+              lastAction: `AI-интервью назначено на ${formattedDate}`,
+              updatedAt: now,
+              history: [
+                ...candidate.history.filter(event => event.id !== historyId),
+                {
+                  id: historyId,
+                  event: 'AI-интервью назначено',
+                  description:
+                    `${formattedDate}, формат: ` +
+                    getInterviewFormatLabel(interview.format),
+                  timestamp: now,
+                  type: 'interview_scheduled' as const,
+                },
+              ],
+            }
+          : candidate
+      )
+    );
+
+    setVacancies(previous =>
+      previous.map(vacancy =>
+        vacancy.id === interview.vacancyId
+          ? {
+              ...vacancy,
+              updatedAt: now,
+              lastAIAction:
+                `Назначено интервью с ${interview.candidateName}`,
+            }
+          : vacancy
+      )
+    );
+
+    setActivities(previous => [
+      {
+        id: activityId,
+        type: 'interview_scheduled',
+        title: 'AI-интервью назначено',
+        description:
+          `Интервью с ${interview.candidateName} назначено ` +
+          `на ${formattedDate}. Формат: ` +
+          `${getInterviewFormatLabel(interview.format)}.`,
+        timestamp: now,
+        vacancyId: interview.vacancyId,
+        vacancyTitle: interview.vacancyTitle,
+        candidateId: interview.candidateId,
+        candidateName: interview.candidateName,
+        status: 'completed',
+      },
+      ...previous.filter(activity => activity.id !== activityId),
+    ]);
+  }, []);
+
   const addActivity = useCallback((activity: AIActivity) => {
     setActivities(previous => [
       activity,
@@ -246,6 +338,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updateVacancy,
         updateCandidateStatus,
         addActivity,
+        scheduleInterview,
       }}
     >
       {children}
