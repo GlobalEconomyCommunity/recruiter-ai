@@ -1,10 +1,24 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import type { Vacancy, Candidate, Interview, AIActivity, UserProfile, Company } from '@/types';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from 'react';
+import type {
+  AIActivity,
+  Candidate,
+  Company,
+  Interview,
+  UserProfile,
+  Vacancy,
+} from '@/types';
 import { defaultVacancies } from '@/data/vacancies';
 import { defaultCandidates } from '@/data/candidates';
 import { defaultInterviews } from '@/data/interviews';
 import { defaultActivities } from '@/data/activities';
-import { demoUser, demoCompany } from '@/data/company';
+import { demoCompany, demoUser } from '@/data/company';
 import { getStoredData, setStoredData } from '@/lib/storage';
 
 interface AppContextType {
@@ -22,52 +36,121 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
+/**
+ * В прототипе данные сохраняются в localStorage. После обновления исходных
+ * демо-данных в браузере может остаться старая или неполная версия массива.
+ * Эта функция возвращает недостающие стандартные записи и сохраняет
+ * пользовательские изменения для уже существующих записей.
+ */
+function mergeStoredWithDefaults<T extends { id: string }>(
+  storedValue: unknown,
+  defaults: T[]
+): T[] {
+  if (!Array.isArray(storedValue)) return defaults;
+
+  const storedItems = storedValue.filter(
+    (item): item is T =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as { id?: unknown }).id === 'string'
+  );
+
+  const storedById = new Map(storedItems.map(item => [item.id, item]));
+  const defaultIds = new Set(defaults.map(item => item.id));
+
+  const mergedDefaults = defaults.map(defaultItem => {
+    const storedItem = storedById.get(defaultItem.id);
+    return storedItem ? { ...defaultItem, ...storedItem } : defaultItem;
+  });
+
+  const customItems = storedItems.filter(item => !defaultIds.has(item.id));
+
+  return [...mergedDefaults, ...customItems];
+}
+
+function loadCollection<T extends { id: string }>(
+  key: string,
+  defaults: T[]
+): T[] {
+  const storedValue = getStoredData<unknown>(key, null);
+  return mergeStoredWithDefaults(storedValue, defaults);
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [vacancies, setVacancies] = useState<Vacancy[]>(() =>
-    getStoredData('vacancies', defaultVacancies)
+    loadCollection('vacancies', defaultVacancies)
   );
   const [candidates, setCandidates] = useState<Candidate[]>(() =>
-    getStoredData('candidates', defaultCandidates)
+    loadCollection('candidates', defaultCandidates)
   );
   const [interviews] = useState<Interview[]>(defaultInterviews);
   const [activities, setActivities] = useState<AIActivity[]>(() =>
-    getStoredData('activities', defaultActivities)
+    loadCollection('activities', defaultActivities)
   );
 
-  // Persist to localStorage
-  useEffect(() => { setStoredData('vacancies', vacancies); }, [vacancies]);
-  useEffect(() => { setStoredData('candidates', candidates); }, [candidates]);
-  useEffect(() => { setStoredData('activities', activities); }, [activities]);
+  useEffect(() => {
+    setStoredData('vacancies', vacancies);
+  }, [vacancies]);
+
+  useEffect(() => {
+    setStoredData('candidates', candidates);
+  }, [candidates]);
+
+  useEffect(() => {
+    setStoredData('activities', activities);
+  }, [activities]);
 
   const addVacancy = useCallback((vacancy: Vacancy) => {
-    setVacancies(prev => [vacancy, ...prev]);
+    setVacancies(previous => [vacancy, ...previous]);
   }, []);
 
-  const updateVacancy = useCallback((id: string, updates: Partial<Vacancy>) => {
-    setVacancies(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
-  }, []);
+  const updateVacancy = useCallback(
+    (id: string, updates: Partial<Vacancy>) => {
+      setVacancies(previous =>
+        previous.map(vacancy =>
+          vacancy.id === id ? { ...vacancy, ...updates } : vacancy
+        )
+      );
+    },
+    []
+  );
 
-  const updateCandidateStatus = useCallback((id: string, status: Candidate['status']) => {
-    setCandidates(prev => prev.map(c => c.id === id ? { ...c, status, updatedAt: new Date().toISOString() } : c));
-  }, []);
+  const updateCandidateStatus = useCallback(
+    (id: string, status: Candidate['status']) => {
+      setCandidates(previous =>
+        previous.map(candidate =>
+          candidate.id === id
+            ? {
+                ...candidate,
+                status,
+                updatedAt: new Date().toISOString(),
+              }
+            : candidate
+        )
+      );
+    },
+    []
+  );
 
   const addActivity = useCallback((activity: AIActivity) => {
-    setActivities(prev => [activity, ...prev]);
+    setActivities(previous => [activity, ...previous]);
   }, []);
 
   return (
-    <AppContext.Provider value={{
-      vacancies,
-      candidates,
-      interviews,
-      activities,
-      user: demoUser,
-      company: demoCompany,
-      addVacancy,
-      updateVacancy,
-      updateCandidateStatus,
-      addActivity,
-    }}>
+    <AppContext.Provider
+      value={{
+        vacancies,
+        candidates,
+        interviews,
+        activities,
+        user: demoUser,
+        company: demoCompany,
+        addVacancy,
+        updateVacancy,
+        updateCandidateStatus,
+        addActivity,
+      }}
+    >
       {children}
     </AppContext.Provider>
   );
@@ -75,6 +158,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
 export function useApp() {
   const context = useContext(AppContext);
-  if (!context) throw new Error('useApp must be used within AppProvider');
+
+  if (!context) {
+    throw new Error('useApp must be used within AppProvider');
+  }
+
   return context;
 }
